@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -14,6 +13,7 @@ from excel_utils import (
     parse_uploaded_address_file,
     save_output_file,
 )
+from time_utils import now_shanghai
 from ui_components import render_address_preview, render_product_table
 
 
@@ -190,7 +190,7 @@ if not TEMPLATE_PATH.exists():
     st.stop()
 
 if "product_refresh_time" not in st.session_state:
-    st.session_state.product_refresh_time = datetime.now()
+    st.session_state.product_refresh_time = now_shanghai()
 if "address_count" not in st.session_state:
     st.session_state.address_count = 1
 if "batch_item_count" not in st.session_state:
@@ -231,11 +231,11 @@ toolbar_col1, toolbar_col2 = st.columns([1, 3])
 with toolbar_col1:
     if st.button("刷新商品数据", use_container_width=True):
         load_product_options.clear()
-        st.session_state.product_refresh_time = datetime.now()
+        st.session_state.product_refresh_time = now_shanghai()
         st.success("已重新读取 Sheet1 商品数据。")
 with toolbar_col2:
     refresh_time_text = st.session_state.product_refresh_time.strftime("%Y-%m-%d %H:%M:%S")
-    st.caption(f"如果你刚更新了模板里的 Sheet1，请先点一次“刷新商品数据”。最近刷新时间：{refresh_time_text}")
+    st.caption(f"如果你刚更新了模板里的 Sheet1，请先点一次“刷新商品数据”。最近刷新时间：{refresh_time_text}（北京时间）")
 
 products = load_product_options(str(TEMPLATE_PATH))
 if not products:
@@ -456,9 +456,9 @@ if submitted:
                 address_groups=parsed_address_groups,
                 customer_code=selected_customer["code"],
                 customer_name=selected_customer["name"],
-                payment_date=datetime.now().date(),
+                payment_date=now_shanghai().date(),
             )
-            file_name = f"样品寄送_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            file_name = f"样品寄送_{now_shanghai().strftime('%Y%m%d_%H%M%S')}.xlsx"
             saved_path = save_output_file(BASE_DIR, output_file, file_name)
             total_orders = sum(len(address_group["order_groups"]) for address_group in parsed_address_groups)
             total_items = sum(
