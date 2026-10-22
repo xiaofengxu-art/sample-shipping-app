@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from openpyxl import load_workbook
 
 from address_utils import normalize_text, split_address, validate_address_groups, validate_batch_rows
 from excel_utils import (
@@ -13,12 +15,43 @@ from excel_utils import (
     parse_uploaded_address_file,
     save_output_file,
 )
+from github_sync import replace_template
 from time_utils import now_shanghai
 from ui_components import render_address_preview, render_product_table
 
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "样品寄送模版.xlsx"
+IS_CLOUD = str(BASE_DIR).startswith("/mount/src")
+GITHUB_REPO = "xiaofengxu-art/sample-shipping-app"
+TEMPLATE_REPO_PATH = "样品寄送模版.xlsx"
+def get_secret(name: str) -> str | None:
+    """读取 Streamlit secrets，未配置时返回 None 而不是抛异常。"""
+    try:
+        value = st.secrets[name]
+    except Exception:
+        return None
+    return str(value) if value else None
+
+
+def validate_template_bytes(data: bytes) -> tuple[bool, str]:
+    """检查上传的模板是否可用，返回 (是否通过, 说明)。"""
+    try:
+        workbook = load_workbook(BytesIO(data), data_only=False)
+    except Exception:
+        return False, "无法解析该文件，请确认是 .xlsx 格式。"
+    missing = [name for name in ("Sheet0", "Sheet1") if name not in workbook.sheetnames]
+    if missing:
+        return False, "模板缺少工作表：" + "、".join(missing) + "。"
+    rows = 0
+    for row in workbook["Sheet1"].iter_rows(min_row=2, values_only=True):
+        if row and row[0] not in (None, ""):
+            rows += 1
+    if rows == 0:
+        return False, "Sheet1 里没有读到商品数据。"
+    return True, f"Sheet1 共 {rows} 行商品"
+
+
 CUSTOMER_OPTIONS = [
     {"code": "KH00832", "name": "第三方样品"},
     {"code": "KH00007", "name": "小红书"},
@@ -185,6 +218,10 @@ st.set_page_config(page_title="样品寄送单生成器", page_icon="📦", layo
 st.title("样品寄送单生成器")
 st.caption("读取模板中的商品资料，自动拆分地址并生成可下载的样品寄送 Excel。")
 
+if "template_flash" in st.session_state:
+    level, text = st.session_state.pop("template_flash")
+    getattr(st, level)(text)
+
 if not TEMPLATE_PATH.exists():
     st.error(f"未找到模板文件：{TEMPLATE_PATH}")
     st.stop()
@@ -241,6 +278,60 @@ products = load_product_options(str(TEMPLATE_PATH))
 if not products:
     st.error("未从 Sheet1 读取到商品数据。")
     st.stop()
+
+with st.expander("更新商品模板（管理员）"):
+    st.caption(
+        "上传新的 样品寄送模版.xlsx 直接替换当前模板。"
+        "本地运行会替换项目里的模板文件；线上会把文件提交回 GitHub 仓库，"
+        "Streamlit Cloud 收到提交后自动重新部署，约 1 分钟生效。"
+    )
+    admin_password = get_secret("ADMIN_PASSWORD")
+    upload_token = get_secret("GITHUB_TOKEN")
+
+    if IS_CLOUD and not upload_token:
+        st.warning(
+            "线上还没有配置 GITHUB_TOKEN，上传入口不可用。"
+            "请在 Streamlit Cloud 的 Settings → Secrets 里补上 GITHUB_TOKEN 和 ADMIN_PASSWORD。"
+        )
+    elif upload_token and not admin_password:
+        st.warning("线上模式必须先在 Streamlit 的 secrets 里配置 ADMIN_PASSWORD，上传入口才会开放。")
+    else:
+        password_input = ""
+        if admin_password:
+            password_input = st.text_input("管理密码", type="password", key="template_admin_pwd")
+
+        uploaded_template = st.file_uploader(
+            "选择新的模板文件", type=["xlsx"], key="template_upload"
+        )
+        if st.button("替换模板", key="replace_template_button", disabled=uploaded_template is None):
+            if admin_password and password_input != admin_password:
+                st.session_state["template_flash"] = ("error", "管理密码不正确。")
+                st.rerun()
+
+            data = uploaded_template.getvalue() if uploaded_template is not None else b""
+            ok, message = validate_template_bytes(data)
+            if not ok:
+                st.session_state["template_flash"] = ("error", message)
+                st.rerun()
+
+            if upload_token:
+                try:
+                    commit_sha = replace_template(GITHUB_REPO, TEMPLATE_REPO_PATH, data, upload_token)
+                except RuntimeError as exc:
+                    st.session_state["template_flash"] = ("error", f"提交到 GitHub 失败：{exc}")
+                else:
+                    st.session_state["template_flash"] = (
+                        "success",
+                        f"{message}，已提交到仓库（{commit_sha[:7]}）。"
+                        "Streamlit Cloud 会自动重新部署，约 1 分钟后模板生效。",
+                    )
+                st.rerun()
+            else:
+                TEMPLATE_PATH.write_bytes(data)
+                load_product_options.clear()
+                st.session_state.product_refresh_time = now_shanghai()
+                st.session_state["template_flash"] = ("success", f"{message}，已替换本地模板文件。")
+                st.rerun()
 
 st.markdown("### 地址与商品明细")
 address_toolbar_col1, address_toolbar_col2 = st.columns([1, 1])
