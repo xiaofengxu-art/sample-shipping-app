@@ -358,7 +358,7 @@ for address_index in range(st.session_state.address_count):
     ensure_address_defaults(address_index)
     order_count_key = address_order_group_count_key(address_index)
 
-    st.markdown(f"## 地址 {address_index + 1}")
+    st.markdown(f"### 地址 {address_index + 1}")
     address_action_col1, address_action_col2, address_action_col3 = st.columns([1, 1, 2])
     with address_action_col1:
         if st.button("新增外部单号", key=f"add_order_group_{address_index}", use_container_width=True):
@@ -400,8 +400,8 @@ for address_index in range(st.session_state.address_count):
         st.session_state[item_count_input_key] = max(1, int(st.session_state.get(item_count_input_key, st.session_state[item_count_key])))
 
         with st.container(border=True):
-            st.markdown(f"### 外部单号 {group_index + 1}")
-            order_header_col1, order_header_col2, order_header_col3 = st.columns([3, 1, 1])
+            st.markdown(f"#### 外部单号 {group_index + 1}")
+            order_header_col1, order_header_col2 = st.columns([3, 1])
             with order_header_col1:
                 external_order_no = st.text_input(
                     f"外部平台单号 {address_index + 1}-{group_index + 1}",
@@ -416,25 +416,25 @@ for address_index in range(st.session_state.address_count):
                     key=item_count_input_key,
                 )
                 st.session_state[item_count_key] = int(item_count)
-            with order_header_col3:
-                button_col1, button_col2 = st.columns(2)
-                with button_col1:
-                    st.button(
-                        "新增商品",
-                        key=f"add_item_{address_index}_{group_index}",
-                        use_container_width=True,
-                        on_click=increment_group_item_count,
-                        args=(address_index, group_index),
-                    )
-                with button_col2:
-                    st.button(
-                        "删除商品",
-                        key=f"remove_item_{address_index}_{group_index}",
-                        use_container_width=True,
-                        disabled=st.session_state[item_count_key] <= 1,
-                        on_click=decrement_group_item_count,
-                        args=(address_index, group_index),
-                    )
+
+            button_col1, button_col2, button_col3 = st.columns([1, 1, 3])
+            with button_col1:
+                st.button(
+                    "新增商品",
+                    key=f"add_item_{address_index}_{group_index}",
+                    use_container_width=True,
+                    on_click=increment_group_item_count,
+                    args=(address_index, group_index),
+                )
+            with button_col2:
+                st.button(
+                    "删除商品",
+                    key=f"remove_item_{address_index}_{group_index}",
+                    use_container_width=True,
+                    disabled=st.session_state[item_count_key] <= 1,
+                    on_click=decrement_group_item_count,
+                    args=(address_index, group_index),
+                )
 
             group_line_items = render_product_table(
                 products=products,
