@@ -45,8 +45,6 @@
   Python 依赖
 - `run.command`
   macOS 启动脚本
-- `run_windows.bat`
-  Windows 启动脚本
 
 ## 本地运行
 
@@ -61,18 +59,6 @@ python3 -m streamlit run sample_shipping_app.py
 或直接双击：
 
 - `run.command`
-
-### Windows
-
-双击：
-
-- `run_windows.bat`
-
-如果窗口一闪而过，请打开项目文件夹，在顶部地址栏输入 `cmd`，回车后执行：
-
-```bat
-run_windows.bat
-```
 
 ## 模板维护
 
