@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from io import BytesIO
 from pathlib import Path
 
@@ -22,7 +23,8 @@ from ui_components import render_address_preview, render_product_table
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "样品寄送模版.xlsx"
-IS_CLOUD = str(BASE_DIR).startswith("/mount/src")
+# 判断是否跑在 Streamlit Community Cloud 上：云端目录在 /mount/src，且 HOME 为 /home/appuser
+IS_CLOUD = str(BASE_DIR).startswith("/mount/src") or os.environ.get("HOME", "").rstrip("/").endswith("appuser")
 GITHUB_REPO = "xiaofengxu-art/sample-shipping-app"
 TEMPLATE_REPO_PATH = "样品寄送模版.xlsx"
 def get_secret(name: str) -> str | None:
@@ -279,59 +281,66 @@ if not products:
     st.error("未从 Sheet1 读取到商品数据。")
     st.stop()
 
-with st.expander("更新商品模板（管理员）"):
-    st.caption(
-        "上传新的 样品寄送模版.xlsx 直接替换当前模板。"
-        "本地运行会替换项目里的模板文件；线上会把文件提交回 GitHub 仓库，"
-        "Streamlit Cloud 收到提交后自动重新部署，约 1 分钟生效。"
-    )
-    admin_password = get_secret("ADMIN_PASSWORD")
-    upload_token = get_secret("GITHUB_TOKEN")
-
-    if IS_CLOUD and not upload_token:
-        st.warning(
-            "线上还没有配置 GITHUB_TOKEN，上传入口不可用。"
-            "请在 Streamlit Cloud 的 Settings → Secrets 里补上 GITHUB_TOKEN 和 ADMIN_PASSWORD。"
+admin_mode = (not IS_CLOUD) or st.query_params.get("admin") == "1"
+if admin_mode:
+    with st.expander("更新商品模板（管理员）", expanded=IS_CLOUD):
+        st.caption(
+            "上传新的 样品寄送模版.xlsx 直接替换当前模板。"
+            "本地运行会替换项目里的模板文件；线上会把文件提交回 GitHub 仓库，"
+            "Streamlit Cloud 收到提交后自动重新部署，约 1 分钟生效。"
         )
-    elif upload_token and not admin_password:
-        st.warning("线上模式必须先在 Streamlit 的 secrets 里配置 ADMIN_PASSWORD，上传入口才会开放。")
-    else:
-        password_input = ""
-        if admin_password:
+        admin_password = get_secret("ADMIN_PASSWORD")
+        upload_token = get_secret("GITHUB_TOKEN")
+
+        allowed = True
+        if IS_CLOUD and not upload_token:
+            st.warning(
+                "线上还没有配置 GITHUB_TOKEN，上传入口不可用。"
+                "请在 Streamlit Cloud 的 Settings → Secrets 里补上 GITHUB_TOKEN 和 ADMIN_PASSWORD。"
+            )
+            allowed = False
+        elif IS_CLOUD and not admin_password:
+            st.warning("线上模式必须先在 Streamlit 的 secrets 里配置 ADMIN_PASSWORD，上传入口才会开放。")
+            allowed = False
+        elif IS_CLOUD and not st.session_state.get("admin_ok"):
+            st.caption("先输入管理密码，验证通过后才能上传。")
             password_input = st.text_input("管理密码", type="password", key="template_admin_pwd")
+            if st.button("确认密码", key="admin_login_button"):
+                if password_input == admin_password:
+                    st.session_state["admin_ok"] = True
+                    st.rerun()
+                st.error("管理密码不正确。")
+            allowed = False
 
-        uploaded_template = st.file_uploader(
-            "选择新的模板文件", type=["xlsx"], key="template_upload"
-        )
-        if st.button("替换模板", key="replace_template_button", disabled=uploaded_template is None):
-            if admin_password and password_input != admin_password:
-                st.session_state["template_flash"] = ("error", "管理密码不正确。")
-                st.rerun()
+        if allowed:
+            uploaded_template = st.file_uploader(
+                "选择新的模板文件", type=["xlsx"], key="template_upload"
+            )
+            if st.button("替换模板", key="replace_template_button", disabled=uploaded_template is None):
+                data = uploaded_template.getvalue() if uploaded_template is not None else b""
+                ok, message = validate_template_bytes(data)
+                if not ok:
+                    st.session_state["template_flash"] = ("error", message)
+                    st.rerun()
 
-            data = uploaded_template.getvalue() if uploaded_template is not None else b""
-            ok, message = validate_template_bytes(data)
-            if not ok:
-                st.session_state["template_flash"] = ("error", message)
-                st.rerun()
-
-            if upload_token:
-                try:
-                    commit_sha = replace_template(GITHUB_REPO, TEMPLATE_REPO_PATH, data, upload_token)
-                except RuntimeError as exc:
-                    st.session_state["template_flash"] = ("error", f"提交到 GitHub 失败：{exc}")
+                if upload_token:
+                    try:
+                        commit_sha = replace_template(GITHUB_REPO, TEMPLATE_REPO_PATH, data, upload_token)
+                    except RuntimeError as exc:
+                        st.session_state["template_flash"] = ("error", f"提交到 GitHub 失败：{exc}")
+                    else:
+                        st.session_state["template_flash"] = (
+                            "success",
+                            f"{message}，已提交到仓库（{commit_sha[:7]}）。"
+                            "Streamlit Cloud 会自动重新部署，约 1 分钟后模板生效。",
+                        )
+                    st.rerun()
                 else:
-                    st.session_state["template_flash"] = (
-                        "success",
-                        f"{message}，已提交到仓库（{commit_sha[:7]}）。"
-                        "Streamlit Cloud 会自动重新部署，约 1 分钟后模板生效。",
-                    )
-                st.rerun()
-            else:
-                TEMPLATE_PATH.write_bytes(data)
-                load_product_options.clear()
-                st.session_state.product_refresh_time = now_shanghai()
-                st.session_state["template_flash"] = ("success", f"{message}，已替换本地模板文件。")
-                st.rerun()
+                    TEMPLATE_PATH.write_bytes(data)
+                    load_product_options.clear()
+                    st.session_state.product_refresh_time = now_shanghai()
+                    st.session_state["template_flash"] = ("success", f"{message}，已替换本地模板文件。")
+                    st.rerun()
 
 st.markdown("### 地址与商品明细")
 address_toolbar_col1, address_toolbar_col2 = st.columns([1, 1])
