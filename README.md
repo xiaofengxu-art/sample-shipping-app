@@ -39,6 +39,10 @@
   模板读取、批量上传解析、Excel 生成与保存
 - `ui_components.py`
   页面组件
+- `time_utils.py`
+  统一北京时间
+- `github_sync.py`
+  线上更新模板时把文件提交回 GitHub
 - `样品寄送模版.xlsx`
   Excel 模板
 - `requirements.txt`
@@ -71,6 +75,23 @@ python3 -m streamlit run sample_shipping_app.py
 更新模板并保存后，回到页面点击：
 
 - `刷新商品数据`
+
+## 在线更新商品模板
+
+页面底部有个「更新商品模板（管理员）」折叠区，可以直接上传新的 `样品寄送模版.xlsx`：
+
+- **本地运行**：直接替换项目里的模板文件，立即生效。
+- **线上（Streamlit Cloud）**：把文件提交回 GitHub 仓库，Streamlit Cloud 收到提交后自动重新部署，约 1 分钟后生效。
+
+线上使用需要在 Streamlit Cloud 的 **Settings → Secrets** 里配置：
+
+```toml
+GITHUB_TOKEN = "ghp_你的token"
+ADMIN_PASSWORD = "自定的管理密码"
+```
+
+- `GITHUB_TOKEN`：GitHub 个人访问令牌，需要该仓库的 Contents 读写权限
+- `ADMIN_PASSWORD`：上传入口的密码；**线上必须配置**，否则上传入口不开放（应用是公开的，防止别人改模板）
 
 ## 批量上传格式
 
